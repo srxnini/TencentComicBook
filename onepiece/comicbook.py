@@ -1,87 +1,142 @@
 import os
 import re
 import importlib
+import datetime
+import logging
+import weakref
 
 from .utils import safe_filename
-from .image_cache import ImageCache
-from .exceptions import SiteNotSupport
-
+from .exceptions import (
+    SiteNotSupport,
+    ChapterNotFound
+)
+from .crawlerbase import CrawlerBase
+from .image import ImageDownloader
 HERE = os.path.abspath(os.path.dirname(__file__))
 
+logger = logging.getLogger(__name__)
 
-def find_support_site():
-    sites = set(
-        map(
-            lambda x: x.split(".py")[0],
-            filter(
-                lambda x: re.match(r"^[a-zA-Z].*?\.py$", x),
-                os.listdir(os.path.join(HERE, "site"))
-            )
-        )
-    )
-    sites.remove('ishuhui')   # 蜡烛
-    sites.remove('wangyi')    # 被b站收购了
-    return frozenset(sites)
+
+def find_all_crawler():
+    for file in os.listdir(os.path.join(HERE, "site")):
+        if re.match(r"^[a-zA-Z].*?\.py$", file):
+            importlib.import_module(".site.{}".format(file.split(".")[0]), __package__)
+    return CrawlerBase.__subclasses__()
 
 
 class ComicBook():
-    SUPPORT_SITE = find_support_site()
+    CRAWLER_CLS_MAP = {crawler.SITE: crawler for crawler in find_all_crawler()}
 
     def __init__(self, comicbook_crawler):
         self.crawler = comicbook_crawler
+        self.image_downloader = ImageDownloader()
+
+        # {chapter_number: Chapter}
+        self.chapter_cache = {}
+        self.crawler_time = None
+        self.comicbook_item = None
+        self.tags = None
+
+    def set_proxy(self, proxy):
+        self.crawler.get_session().set_proxy(proxy)
+        self.image_downloader.get_session().set_proxy(proxy)
+
+    def set_worker(self, worker):
+        self.image_downloader.set_worker(worker=worker)
+
+    def set_verify(self, verify):
+        self.image_downloader.set_verify(verify)
+
+    def set_driver_path(self, driver_path):
+        self.crawler.DRIVER_PATH = driver_path
+
+    def refresh(self):
         self.comicbook_item = self.crawler.get_comicbook_item()
+        self.crawler_time = datetime.datetime.now()
         for field in self.comicbook_item.FIELDS:
             setattr(self, field, getattr(self.comicbook_item, field))
 
-        # {chapter_number: Chapter}
-        self.chapter_db = {}
-
-        if len(self.comicbook_item.chapters) > 0:
-            self.last_chapter_number = self.comicbook_item.chapters[-1]["chapter_number"]
-            self.last_chapter_title = self.comicbook_item.chapters[-1]["title"]
+        if self.comicbook_item.citems:
+            last_chapter = max(self.comicbook_item.citems.values(),
+                               key=lambda x: x.chapter_number)
+            self.last_chapter_number = last_chapter.chapter_number
+            self.last_chapter_title = last_chapter.title
         else:
             self.last_chapter_number = 0
             self.last_chapter_title = ""
 
-    @classmethod
-    def create_comicbook(cls, site, comicid):
-        if site not in cls.SUPPORT_SITE:
-            raise SiteNotSupport("site={} 暂不支持".format(site))
-        module = importlib.import_module(".site.{}".format(site), __package__)
-        crawler = module.ComicBookCrawler(comicid)
-        return cls(comicbook_crawler=crawler)
+    def start_crawler(self):
+        if self.crawler_time is None:
+            self.refresh()
 
     @classmethod
-    def search(cls, site, name, limit=None):
-        if site not in cls.SUPPORT_SITE:
-            raise SiteNotSupport("site={} 暂不支持".format(site))
-        module = importlib.import_module(".site.{}".format(site), __package__)
-        return module.ComicBookCrawler.search(name)[:limit]
+    def create_comicbook(cls, site, comicid=None):
+        if site not in cls.CRAWLER_CLS_MAP:
+            raise SiteNotSupport(f"SiteNotSupport site={site}")
+        crawler_cls = cls.CRAWLER_CLS_MAP[site]
+        if comicid is None:
+            comicid = crawler_cls.DEFAULT_COMICID
+        crawler = crawler_cls(comicid)
+        comicbook = cls(comicbook_crawler=crawler)
+        return comicbook
+
+    def search(self, name=None, page=1, limit=None):
+        return self.crawler.search(name, page=page, size=limit)
+
+    def latest(self, page=1):
+        return self.crawler.latest(page=page)
+
+    def get_tags(self):
+        if self.tags is None:
+            self.tags = self.crawler.get_tags()
+        return self.tags
+
+    def get_tag_result(self, tag, page=1):
+        return self.crawler.get_tag_result(tag=tag, page=page)
 
     def to_dict(self):
+        if self.comicbook_item is None:
+            self.start_crawler()
         return self.comicbook_item.to_dict()
 
     def __repr__(self):
         return "<ComicBook>: {}".format(self.to_dict())
 
     def Chapter(self, chapter_number):
+        if self.comicbook_item is None:
+            self.start_crawler()
+
         if chapter_number < 0:
             chapter_number = self.last_chapter_number + chapter_number + 1
-        if chapter_number not in self.chapter_db:
-            chapter_item = self.crawler.get_chapter_item(chapter_number)
-            chapter = Chapter(comicbook_item=self.comicbook_item, chapter_item=chapter_item)
-            self.chapter_db[chapter_number] = chapter
-        return self.chapter_db[chapter_number]
+
+        if chapter_number not in self.comicbook_item.citems:
+            msg = ChapterNotFound.TEMPLATE.format(site=self.crawler.SITE,
+                                                  comicid=self.crawler.comicid,
+                                                  chapter_number=chapter_number,
+                                                  source_url=self.crawler.source_url)
+            raise ChapterNotFound(msg)
+
+        if self.crawler.SITE == 'bilibili' or chapter_number not in self.chapter_cache:
+            citem = self.comicbook_item.citems[chapter_number]
+            chapter_item = self.crawler.get_chapter_item(citem)
+            self.chapter_cache[chapter_number] = Chapter(
+                comicbook_ref=weakref.ref(self),
+                chapter_item=chapter_item)
+        return self.chapter_cache[chapter_number]
 
 
 class Chapter():
 
-    def __init__(self, comicbook_item, chapter_item):
-        self.comicbook_item = comicbook_item
+    def __init__(self, comicbook_ref, chapter_item):
+        self.comicbook_ref = comicbook_ref
         self.chapter_item = chapter_item
 
         for field in self.chapter_item.FIELDS:
             setattr(self, field, getattr(self.chapter_item, field))
+
+    @property
+    def comicbook(self):
+        return self.comicbook_ref()
 
     def to_dict(self):
         return self.chapter_item.to_dict()
@@ -90,26 +145,28 @@ class Chapter():
         return "<Chapter>: {}".format(self.to_dict())
 
     def get_chapter_image_dir(self, output_dir):
-        first_dir = safe_filename(self.comicbook_item.source_name)
-        second_dir = safe_filename(self.comicbook_item.name)
+        first_dir = safe_filename(self.comicbook.source_name)
+        second_dir = safe_filename(self.comicbook.name)
         third_dir = safe_filename("{:>03} {}".format(self.chapter_item.chapter_number, self.chapter_item.title))
         chapter_dir = os.path.join(output_dir, first_dir, second_dir, third_dir)
         return chapter_dir
 
     def get_chapter_pdf_path(self, output_dir):
-        first_dir = safe_filename(self.comicbook_item.source_name)
-        second_dir = safe_filename(self.comicbook_item.name)
+        first_dir = safe_filename(self.comicbook.source_name)
+        second_dir = safe_filename(self.comicbook.name)
         filename = safe_filename("{:>03} {}".format(self.chapter_number, self.title)) + ".pdf"
         pdf_path = os.path.join(output_dir, first_dir, second_dir, filename)
         return pdf_path
 
     def save(self, output_dir):
         chapter_dir = self.get_chapter_image_dir(output_dir)
-        ImageCache.download_images(image_urls=self.image_urls, output_dir=chapter_dir)
+        headers = {'Referer': self.chapter_item.source_url}
+        self.comicbook.image_downloader.download_images(
+            image_urls=self.image_urls, output_dir=chapter_dir, headers=headers)
         return chapter_dir
 
     def save_as_pdf(self, output_dir):
-        from .utils.img2pdf import image_dir_to_pdf
+        from .utils import image_dir_to_pdf
         chapter_dir = self.save(output_dir)
         pdf_path = self.get_chapter_pdf_path(output_dir)
         image_dir_to_pdf(img_dir=chapter_dir,

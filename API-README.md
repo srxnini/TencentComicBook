@@ -1,15 +1,22 @@
 ## 接口部署
 
-安装依赖
 ```sh
-pip install requests flask cachetools gunicorn
-```
+# 1. 安装依赖
+pip install -r requirements-api.txt
 
-启动接口
-```sh
+# 2. 复制`api/config.py.example`并命名为`api/config.py` 并根据实际情况修改`api/config.py`的参数
+cp api/config.py.example api/config.py
+
+# 2.1 删除旧数据库
+rm download/onepiece.db
+
+# 2.2 创建新数据库
+python manage.py createdb
+
+# 3. 启动接口
 gunicorn 'api:create_app()' -b "127.0.0.1:8000" --workers=2 --timeout=30
 
-# 查看可选的配置选项 gunicorn --help
+# 4. 查看可选的配置选项 gunicorn --help
 # 文档 http://docs.gunicorn.org/en/latest/settings.html
 ```
 
@@ -18,37 +25,49 @@ gunicorn 'api:create_app()' -b "127.0.0.1:8000" --workers=2 --timeout=30
 - [1.1 获取概要信息](#11)
 - [1.2 获取章节详情](#12)
 - [1.3 搜索接口](#13)
+- [1.4 获取最近更新](#14)
+- [1.5 获取所有tag](#15)
+- [1.6 根据tag搜索](#16)
+- [1.7 聚合搜索](#17)
+- [2.1 添加到异步任务](#21)
+- [2.2 查看任务列表](#22)
+
 
 ### 1.1 获取概要信息
 
-`GET /comic/<site>/<comicid>`
+`GET /api/<site>/comic/<comicid>`
 
 请求示例
 ```sh
-curl ${host}/comic/ishuhui/1
+curl "http://127.0.0.1:8000/api/bilibili/comic/24742"
 ```
 
 ```json
 {
-  "author": "尾田荣一郎",
-  "cover_image_url": "http://oss.ishuhui.com/oldImg/cartoon/book/thumb/1/YDdFCpDpUAveOWJvxJRusmHb.jpg",
-  "crawl_time": "2019-02-26 05:28:45",
-  "desc": "《ONE PIECE》（海賊王、航海王）簡稱“OP”，是日本漫畫家尾田榮一郎作畫的少年漫畫作品。在《週刊少年Jump》1997年34號開始連載。描寫了擁有橡皮身體戴草帽的青年路飛，以成為“海賊王”為目標和同伴在大海展開冒險的故事。另外有同名的海賊王劇場版、電視動畫和遊戲等周邊媒體產品。擁有財富、名聲、權力，這世界上的一切的男人 “海賊王”哥爾·D·羅傑，在被行刑受死之前說了一句話，讓全世界的人都湧向了大海。“想要我的寶藏嗎？如果想要的話，那就到海上去找吧，我全部都放在那裡。”，世界開始迎接“大海賊時代”的來臨。時值“大海賊時代”，為了尋找傳說中海賊王羅傑所留下的大秘寶“ONE PIECE”，無數海賊揚起旗幟，互相爭鬥。一個叫路飛的少年為了與因救他而斷臂的香克斯的約定而出海，在旅途中不斷尋找志同道合的夥伴，開始了以成為海賊王為目標的偉大冒險旅程。",
-  "chapters": [
-    {
-      "chapter_number": 1,
-      "title": "ROMANCE DAWN"
-    },
-    {
-      "chapter_number": 2,
-      "title": "戴草帽的路飞"
-    },
-    ...
-  ],
-  "name": "海賊王",
-  "source_name": "鼠绘漫画",
-  "source_url": "https://www.ishuhui.com/comics/anime/1",
-  "tag": "熱血,冒險,搞笑"
+    "author": "尾田荣一郎 集英社",
+    "chapters": [
+        {
+            "chapter_number": 1,
+            "source_url": "https://manga.bilibili.com/m/mc24742/218087",
+            "title": "ROMANCE DAWN冒险的序幕"
+        },
+        {
+            "chapter_number": 2,
+            "source_url": "https://manga.bilibili.com/m/mc24742/218093",
+            "title": "戴草帽的路飞"
+        }
+    ],
+    "cover_image_url": "http://i0.hdslb.com/bfs/manga-static/8cfad691e8717f8c189f2b5e93a39d272708f91a.jpg",
+    "crawl_time": "2020-08-16 15:06:29",
+    "desc": "【此漫画的翻译由版权方提供】拥有财富、名声、权力、这世界上的一切的男人 “海盗王”高路德·罗杰，在临死之前说了一句话，让全世界的人都涌向了大海。“想要我的财宝吗？想要的话，就去拿吧，我把世界上的一切都放在了那里！”，这个世界迎来了“大海盗时代”。",
+    "name": "航海王",
+    "source_name": "哔哩哔哩漫画",
+    "site": "bilibili",
+    "source_url": "https://manga.bilibili.com/m/detail/mc24742",
+    "tag": "奇幻,热血,冒险",
+    "tags": [],
+    "volumes": [],
+    "ext_chapters": []
 }
 ```
 
@@ -56,39 +75,25 @@ curl ${host}/comic/ishuhui/1
 
 ### 1.2 获取章节详情
 
-`GET /comic/<site>/<comicid>/<chapter_number>`
+`GET /api/<site>/comic/<comicid>/<chapter_number>`
 
 请求示例
 ```sh
-curl ${host}/comic/ishuhui/1/933
+curl "http://127.0.0.1:8000/api/bilibili/comic/24742/1"
 ```
 
 ```json
 {
-  "chapter_number": 933,
-  "image_urls": [
-    "https://oss.ishuhui.com/img/comics/2019/02/daeab48f-2d6f-4a1d-8041-957613713ca7.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/08e08806-5fb5-47a2-8849-508a681d8d2e.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/22e4851b-0dbf-445b-989c-174e317a650c.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/68fe6033-8ce3-424a-9b54-6e9b442d099d.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/4e552f98-de23-49b8-9f36-7a3d1d322590.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/c126a8c8-301d-4e04-a6b4-ac1c469d425a.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/f5dfd51c-6d8b-4867-89a0-83fe99490a92.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/ebd65831-2d99-4e07-841f-6ccfdc708fe5.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/b1076e7c-b5b9-4478-955e-336d090f4987.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/3e20a7a3-68ee-421d-9669-45dd47b8890e.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/3f8f8052-634a-429e-b1e9-77987f617600.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/0b66f28c-a3fa-49da-a27e-0137ed405600.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/765c2ee6-d833-4d0b-9dcf-fb37814b5cb8.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/fa9c9952-911d-4ff6-8c82-63e2b01722eb.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/7ec43744-4f8d-4ccd-aafd-2c8ea28f5d78.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/03ba8c69-bdab-457f-9cee-d06fc1a13347.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/d82c7ac5-60dd-4d48-b24f-80b717a30e02.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/37ff3131-8ccc-4634-960f-ed944785465a.png",
-    "https://oss.ishuhui.com/img/comics/2019/02/7b92e407-60d2-4f86-bad6-7970c7e6f9ff.jpeg"
-  ],
-  "source_url": "https://www.ishuhui.com/comics/detail/11363",
-  "title": "武士的仁慈"
+    "chapter_number": 1,
+    "image_urls": [
+        "https://i0.hdslb.com/bfs/manga/a978a1834b3ad58fad020e56aaac9faaa0aa941a.jpg?token=73441250b03e3f16%3ANyuRMmMH4QSq3VoxAtaxG5yw%2Bd0%3D%3A1597561590",
+        "https://i0.hdslb.com/bfs/manga/535548cebdd5d96cfa87247f07171ccebfa1efa7.jpg?token=73441250b03e3f16%3Awk76wOeUd7daRpAfc%2FHSs1Qkql0%3D%3A1597561590",
+        "https://i0.hdslb.com/bfs/manga/f6e50a5bdd38af33c152f7929ee63325b519bfdc.jpg?token=73441250b03e3f16%3Ad57MJZIADxnHC%2FG9TkOIvlK1pLU%3D%3A1597561590"
+    ],
+    "source_url": "https://manga.bilibili.com/m/mc24742/218087",
+    "title": "ROMANCE DAWN冒险的序幕",
+    "source_name": "哔哩哔哩漫画",
+    "site": "bilibili"
 }
 ```
 
@@ -96,66 +101,328 @@ curl ${host}/comic/ishuhui/1/933
 
 ### 1.3 搜索接口
 
-`GET /search/<site>?name={name}&limit={limit}`
+`GET /api/<site>/search?name={name}&page={page}`
 
 请求示例
 
 ```sh
-curl "${host}/search/qq?name=海贼王&limit=20"
+curl "http://127.0.0.1:8000/api/qq/search?name=海贼&page=1"
 ```
 
 ```json
 {
-  "search_result": [
-    {
-      "comicid": "505430",
-      "cover_image_url": "https://manhua.qpic.cn/vertical/0/17_16_48_0e28c8aabf48e91d395689b5f6a7689f.jpg/420",
-      "name": "航海王",
-      "site": "qq",
-      "source_url": "https://ac.qq.com/Comic/ComicInfo/id/505430"
-    },
-    {
-      "comicid": "531616",
-      "cover_image_url": "https://manhua.qpic.cn/vertical/0/17_17_06_cb4ba7f7af603a3380bb1e5ed415804b.jpg/420",
-      "name": "航海王（番外篇）",
-      "site": "qq",
-      "source_url": "https://ac.qq.com/Comic/ComicInfo/id/531616"
-    },
-    {
-      "comicid": "512062",
-      "cover_image_url": "https://manhua.qpic.cn/vertical/0/17_16_53_6b94329a848ab290f2a7fe8926c002cc.jpg/420",
-      "name": "航海王（全彩版）",
-      "site": "qq",
-      "source_url": "https://ac.qq.com/Comic/ComicInfo/id/512062"
-    },
-    {
-      "comicid": "550529",
-      "cover_image_url": "https://manhua.qpic.cn/vertical/0/17_17_19_cdfbe709316c877ccfb23c57ab393d46.jpg/420",
-      "name": "中国贵州贵阳中等孩子的日常？",
-      "site": "qq",
-      "source_url": "https://ac.qq.com/Comic/ComicInfo/id/550529"
-    },
-    {
-      "comicid": "549637",
-      "cover_image_url": "https://manhua.qpic.cn/vertical/0/24_22_37_a4aba72ff67134b2a8d6faf3202973c3_1545662258373.jpg/420",
-      "name": "抑郁症",
-      "site": "qq",
-      "source_url": "https://ac.qq.com/Comic/ComicInfo/id/549637"
-    },
-    {
-      "comicid": "630588",
-      "cover_image_url": "https://manhua.qpic.cn/vertical/0/26_17_12_a5b28a23f4d5df3cea863deb0a9b274c_1516957975778.jpg/420",
-      "name": "天堂岛",
-      "site": "qq",
-      "source_url": "https://ac.qq.com/Comic/ComicInfo/id/630588"
-    },
-    {
-      "comicid": "628782",
-      "cover_image_url": "https://manhua.qpic.cn/vertical/0/20_13_12_02857f7dbb8f571550c5a8e0e8e3104a_1513746733413.jpg/420",
-      "name": "济康传",
-      "site": "qq",
-      "source_url": "https://ac.qq.com/Comic/ComicInfo/id/628782"
+    "search_result":[
+        {
+            "comicid":"505430",
+            "cover_image_url":"https://manhua.qpic.cn/vertical/0/17_16_48_0e28c8aabf48e91d395689b5f6a7689f.jpg/420",
+            "name":"航海王",
+            "source_url":"https://ac.qq.com/Comic/ComicInfo/id/505430",
+            "source_name": "腾讯漫画",
+            "site": "qq",
+        },
+        {
+            "comicid":"531616",
+            "cover_image_url":"https://manhua.qpic.cn/vertical/0/17_17_06_cb4ba7f7af603a3380bb1e5ed415804b.jpg/420",
+            "name":"航海王（番外篇）",
+            "source_url":"https://ac.qq.com/Comic/ComicInfo/id/531616",
+            "source_name": "腾讯漫画",
+            "site": "qq",
+        }
+    ]
+}
+```
+
+------
+
+### 1.4 获取最近更新
+
+
+`GET /api/<site>/latest?page={page}`
+
+请求示例
+
+```sh
+curl "http://127.0.0.1:8000/api/qq/latest?page=1"
+```
+
+```json
+{
+    "latest":[
+        {
+            "comicid":"505430",
+            "cover_image_url":"https://manhua.qpic.cn/vertical/0/17_16_48_0e28c8aabf48e91d395689b5f6a7689f.jpg/420",
+            "name":"航海王",
+            "source_url":"https://ac.qq.com/Comic/ComicInfo/id/505430",
+            "source_name": "腾讯漫画",
+            "site": "qq",
+        }
+    ]
+}
+```
+
+### 1.5 获取所有tag
+
+`GET /api/<site>/tags`
+
+请求示例
+
+```sh
+curl "http://127.0.0.1:8000/api/qq/tags"
+```
+
+```json
+{
+    "tags":[
+        {
+            "category":"属性",
+            "tags":[
+                {
+                    "name":"全部",
+                    "tag":""
+                },
+                {
+                    "name":"付费",
+                    "tag":"vip_2"
+                },
+                {
+                    "name":"免费",
+                    "tag":"vip_1"
+                }
+            ]
+        },
+        {
+            "category":"进度",
+            "tags":[
+                {
+                    "name":"全部",
+                    "tag":""
+                },
+                {
+                    "name":"连载",
+                    "tag":"finish_1"
+                },
+                {
+                    "name":"完结",
+                    "tag":"finish_2"
+                }
+            ]
+        },
+        {
+            "category":"标签",
+            "tags":[
+                {
+                    "name":"恋爱",
+                    "tag":"theme_105"
+                },
+                {
+                    "name":"玄幻",
+                    "tag":"theme_101"
+                },
+                {
+                    "name":"异能",
+                    "tag":"theme_103"
+                },
+                {
+                    "name":"恐怖",
+                    "tag":"theme_110"
+                },
+                {
+                    "name":"剧情",
+                    "tag":"theme_106"
+                },
+                {
+                    "name":"科幻",
+                    "tag":"theme_108"
+                },
+                {
+                    "name":"悬疑",
+                    "tag":"theme_112"
+                },
+                {
+                    "name":"奇幻",
+                    "tag":"theme_102"
+                },
+                {
+                    "name":"冒险",
+                    "tag":"theme_104"
+                },
+                {
+                    "name":"犯罪",
+                    "tag":"theme_111"
+                },
+                {
+                    "name":"动作",
+                    "tag":"theme_109"
+                },
+                {
+                    "name":"日常",
+                    "tag":"theme_113"
+                },
+                {
+                    "name":"竞技",
+                    "tag":"theme_114"
+                },
+                {
+                    "name":"武侠",
+                    "tag":"theme_115"
+                },
+                {
+                    "name":"历史",
+                    "tag":"theme_116"
+                }
+            ]
+        }
+    ]
+}
+```
+
+### 1.6 根据tag搜索
+
+`GET /api/<site>/liat?tag={tag}&page={page}`
+
+请求示例
+
+```sh
+curl "http://127.0.0.1:8000/api/qq/list?tag=theme_105,finish_2&page=1"
+```
+
+```json
+{
+    "list":[
+        {
+            "comicid":"623251",
+            "cover_image_url":"https://manhua.qpic.cn/vertical/0/12_20_16_eefe809e406d5076dd13012d48869f89_1499861764052.jpg/420",
+            "name":"出柜通告",
+            "site":"qq",
+            "source_name":"腾讯漫画",
+            "source_url":"https://ac.qq.com/Comic/ComicInfo/id/623251",
+            "status":""
+        },
+        {
+            "comicid":"642093",
+            "cover_image_url":"https://manhua.qpic.cn/vertical/0/27_15_21_78309f29cd87c7cc377394e7eff7451a_1558941691349.jpg/420",
+            "name":"早安，亿万萌妻",
+            "site":"qq",
+            "source_name":"腾讯漫画",
+            "source_url":"https://ac.qq.com/Comic/ComicInfo/id/642093",
+            "status":""
+        }
+    ]
+}
+```
+
+### 1.7 聚合搜索
+
+`GET /aggregate/search?name={name}&site={site}`
+
+请求示例
+
+```sh
+curl "http://127.0.0.1:8000/aggregate/search?name=海贼&site=bilibili,u17"
+```
+
+```json
+{
+    "list":[
+        {
+            "comicid":24742,
+            "cover_image_url":"http://i0.hdslb.com/bfs/manga-static/7bcf22ed4904a4346c7aa33887be0e6540d5908f.png",
+            "name":"航海王",
+            "site":"bilibili",
+            "source_name":"哔哩哔哩漫画",
+            "source_url":"https://manga.bilibili.com/m/detail/mc24742",
+            "status":"连载"
+        },
+        {
+            "comicid":"53210",
+            "cover_image_url":"https://cover.u17i.com/2016/06/3531898_1465634794_j1xJ1WwX0zh3.small.jpg",
+            "name":"当火影遇上海贼",
+            "site":"u17",
+            "source_name":"有妖气",
+            "source_url":"https://www.u17.com/comic/53210.html",
+            "status":""
+        }
+    ]
+}
+```
+
+
+### 2.1 添加到异步任务
+
+`GET /task/add?name={name}&site={site}`
+
+- site: 站点
+- comicid: 漫画id
+- chapter: 下载漫画的哪个章节，不传默认下载最新一集
+- is_all: 是否下载所有章节, 0 否，1 是，默认 否
+- gen_pdf: 是否生成pdf, 0 否，1 是，默认 否
+- send_mail: 是否发送到邮箱, 0 否，1 是，默认 否
+- receivers: 收件人列表，如: `xxx@qq.com,yyy@qq.com`, 不传默认发送到配置文件里的收件人，
+- secret: config.py 中的 TASK_SECRET
+
+请求示例
+
+```sh
+curl "http://127.0.0.1:8000/task/add?site=qq&comicid=505430&chapter=3&gen_pdf=1&send_mail=0"
+```
+
+```json
+{
+    "data":{
+        "chapter":"3",
+        "comicid":"505430",
+        "cost_time":0,
+        "create_time":"2020-10-18 22:51:54",
+        "gen_pdf":1,
+        "id":1,
+        "is_all":0,
+        "name":"航海王",
+        "reason":"",
+        "receivers":"",
+        "send_mail":0,
+        "site":"qq",
+        "source_url":"https://ac.qq.com/Comic/ComicInfo/id/505430",
+        "start_time":"",
+        "status":"初始化",
+        "update_time":"2020-10-18 22:51:54"
     }
-  ]
+}
+```
+
+
+### 2.2 查看任务列表
+
+`GET /task/list?name={page}&secret={secret}`
+
+请求示例
+
+若任务超过10min 任务状态还没变成完成/失败，则需重新添加异步任务
+
+```sh
+curl "http://127.0.0.1:8000/task/list?page=1"
+```
+
+```json
+{
+    "list":[
+        {
+            "chapter":"-11",
+            "comicid":"505430",
+            "cost_time":1,
+            "create_time":"2020-10-18 22:51:54",
+            "gen_pdf":1,
+            "id":1,
+            "is_all":0,
+            "name":"航海王",
+            "reason":"",
+            "receivers":"",
+            "send_mail":0,
+            "site":"qq",
+            "source_url":"https://ac.qq.com/Comic/ComicInfo/id/505430",
+            "start_time":"2020-10-18 22:51:54",
+            "status":"完成",
+            "update_time":"2020-10-18 22:51:54"
+        }
+    ]
 }
 ```

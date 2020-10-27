@@ -1,102 +1,69 @@
 # TencentComicBook
 
-腾讯漫画、哔哩哔哩漫画、有妖气漫画爬虫
+腾讯漫画、哔哩哔哩漫画、有妖气漫画、快看漫画、漫画柜、漫画台爬虫
+
+尊重版权，请支持正版，通过本工具下载或生成的资源**禁止传播分享！禁止利用本项目进行商业活动！**
 
 ## 本项目特点
 
 - [x] 漫画批量下载
 - [x] 分目录按章节保存
-- [x] 支持腾讯漫画、哔哩哔哩漫画、有妖气漫画
+- [x] 支持多个漫画源，易于扩展
 - [x] 支持登录
 - [x] 支持生成pdf
 - [x] 支持发送到邮箱
-- [x] 集成api，方便调用 [API-README](API-README.md)
+- [x] 支持设置代理
+- [x] 支持API调用 [API-README](API-README.md)
 
 
-## 安装依赖
+## 使用步骤
+```sh
+# clone项目
+git clone git@github.com:lossme/TencentComicBook.git
+# 切换工作目录
+cd TencentComicBook
+# 安装依赖
+python3 -m pip install requirements.txt
+# 查看帮助
+python3 -m onepiece --help
+```
 
-若只是下载图片，只需安装`requests`即可食用
+如果在使用过程中，发现问题可以先更新代码再试下，说不定已经修复了。
 
-`python3 -m pip install requests`
+star防止走丢，欢迎大家提建议和issue
 
-若要生成pdf和发送到邮箱，则需要安装完整依赖
+## 常规使用
 
-`python3 -m pip install -r requirements.txt`
+从腾讯漫画下载：
+
+- 下载漫画 id=505430 最新一集: `python3 -m onepiece --site=qq --comicid=505430`
+- 下载漫画 id=505430 所有章节: `python3 -m onepiece --site=qq --comicid=505430 --all`
+- 下载漫画 id=505430 第800集: `python3 -m onepiece --site=qq --comicid=505430 --chapter=800`
+- 下载漫画 id=505430 倒数第二集: `python3 -m onepiece --site=qq --comicid=505430 --chapter=-2`
+- 下载漫画 id=505430 1到5集,7集，9到10集: `python3 -m onepiece --site=qq --comicid=505430 --chapter=1-5,7,9-10`
+- 下载漫画 id=505430 并生成pdf文件: `python3 -m onepiece --site=qq --comicid=505430 --pdf`
+- 下载漫画 id=505430 并推送到邮箱: `python3 -m onepiece --site=qq --comicid=505430 --pdf --mail`
+- 下载漫画 id=505430 设置代理: `python3 -m onepiece --site=qq --comicid=505430 --proxy "socks5://127.0.0.1:1080"`
+
+从其它站点下载，注意不同站点的comicid区别
+
+- 从哔哩哔哩漫画下载: `python3 -m onepiece --site=bilibili --comicid=mc24742 --chapter=1`
+- 从有妖气漫画下载: `python3 -m onepiece --site=u17 --comicid=195 --chapter=1`
+- 从快看漫画下载: `python3 -m onepiece --site=kuaikan --comicid=1338 --chapter=1`
+- 从漫画柜下载: `python3 -m onepiece --site=manhuagui --comicid=19430 --chapter=1`
+- 从漫画台下载: `python3 -m onepiece --site=manhuatai --comicid=doupocangqiong --chapter=1`
+
+若不清楚或不记得comicid，可以使用名字来搜索，按照提示输入comicid
+
+- `python3 -m onepiece --site=qq --name=海贼`
+- `python3 -m onepiece --site=bilibili --name=海贼`
+- `python3 -m onepiece --site=u17 --name=雏蜂`
 
 **注意**: 发送到邮箱需预先配置好信息
 
 复制`config.ini.example`并命名为`config.ini`，并根据实际情况修改`config.ini`的参数
 
-## 常规使用
-
-默认从腾讯漫画下载，注意不同站点的comicid区别
-
-- 下载海贼王最新一集: `python3 -m onepiece`
-- 下载漫画 id=505430 最新一集: `python3 -m onepiece --comicid=505430`
-- 下载漫画 id=505430 所有章节: `python3 -m onepiece --comicid=505430 --all`
-- 下载漫画 id=505430 第800集: `python3 -m onepiece --comicid=505430 --chapter=800`
-- 下载漫画 id=505430 倒数第二集: `python3 -m onepiece --comicid=505430 --chapter=-2`
-- 下载漫画 id=505430 1到5集,7集，9到10集: `python3 -m onepiece --comicid=505430 --chapter=1-5,7,9-10`
-- 下载漫画 id=505430 并生成pdf文件: `python3 -m onepiece --comicid=505430 --pdf`
-- 下载漫画 id=505430 并推送到邮箱: `python3 -m onepiece --comicid=505430 --pdf --mail`
-- 从鼠绘漫画下载: `python3 -m onepiece --site=ishuhui --comicid=1 --chapter=1-5`
-- 从哔哩哔哩漫画下载: `python3 -m onepiece --site=bilibili --comicid=mc24742 --chapter=1-5`
-- 从有妖气漫画下载: `python3 -m onepiece --site=u17 --comicid=195 --chapter=-1`
-
-若不清楚或不记得comicid，可以使用名字来搜索，按照提示输入comicid
-
-- `python3 -m onepiece --site=qq --name=海贼 --chapter=1-5`
-- `python3 -m onepiece --site=bilibili --name=海贼 --chapter=-1`
-- `python3 -m onepiece --site=u17 --name=雏蜂 --chapter=-1`
-
-
-## 使用帮助
-
-```sh
-# 查看帮助
-python3 -m onepiece --help
-```
-
-```sh
-usage: onepiece [-h] [-id COMICID] [--name NAME] [-c CHAPTER]
-                [--worker WORKER] [--all] [--pdf] [--login] [--mail]
-                [--config CONFIG] [-o OUTPUT] [--site {qq,u17,bilibili}]
-                [--cachedir CACHEDIR] [--nocache] [--driver-path DRIVER_PATH]
-                [--driver-type {Firefox,Ie,Opera,Chrome}]
-                [--session-path SESSION_PATH] [-V] [--debug]
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -id COMICID, --comicid COMICID
-                        漫画id，海贼王: 505430
-                        (http://ac.qq.com/Comic/ComicInfo/id/505430)
-  --name NAME           漫画名
-  -c CHAPTER, --chapter CHAPTER
-                        要下载的章节, 默认下载最新章节。如 -c 666 或者 -c 1-5,7,9-10
-  --worker WORKER       线程池数，默认开启4个线程池
-  --all                 是否下载该漫画的所有章节, 如 --all
-  --pdf                 是否生成pdf文件, 如 --pdf
-  --login               是否登录账号，如 --login
-  --mail                是否发送pdf文件到邮箱, 如 --mail。需要预先配置邮件信息。
-                        可以参照config.ini.example文件，创建并修改config.ini文件
-  --config CONFIG       配置文件路径，默认取当前目录下的config.ini
-  -o OUTPUT, --output OUTPUT
-                        文件保存路径，默认保存在当前路径下的download文件夹
-  --site {qq,u17,bilibili}
-                        数据源网站：支持bilibili,qq,u17
-  --cachedir CACHEDIR   图片缓存目录，默认为当前目录下.cache
-  --nocache             禁用图片缓存
-  --driver-path DRIVER_PATH
-                        selenium driver
-  --driver-type {Firefox,Ie,Chrome,Opera,Edge}
-                        支持的浏览器: Chrome,Edge,Firefox,Ie,Opera. 默认为 Chrome
-  --session-path SESSION_PATH
-                        读取或保存上次使用的session路径
-  -V, --version         show program's version number and exit
-  --debug               debug
-```
-
-#### 关于登录
+### 关于登录
 
 限于本人能力有限，登录懒得搞，只好祭出selenium这个大杀器
 
