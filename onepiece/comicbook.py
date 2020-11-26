@@ -6,6 +6,7 @@ import logging
 import weakref
 
 from .utils import safe_filename
+from .utils import ensure_file_dir_exists
 from .exceptions import (
     SiteNotSupport,
     ChapterNotFound
@@ -27,28 +28,26 @@ def find_all_crawler():
 class ComicBook():
     CRAWLER_CLS_MAP = {crawler.SITE: crawler for crawler in find_all_crawler()}
 
-    def __init__(self, comicbook_crawler):
-        self.crawler = comicbook_crawler
-        self.image_downloader = ImageDownloader()
+    def __init__(self, site, comicid=None):
+        if site not in self.CRAWLER_CLS_MAP:
+            raise SiteNotSupport(f"SiteNotSupport site={site}")
+        crawler_cls = self.CRAWLER_CLS_MAP[site]
+        comicid = comicid or crawler_cls.DEFAULT_COMICID
+        self.crawler = crawler_cls(comicid)
+
+        self.image_downloader = ImageDownloader(site=site)
 
         # {chapter_number: Chapter}
         self.chapter_cache = {}
         self.crawler_time = None
         self.comicbook_item = None
         self.tags = None
+        self.last_chapter_number = 0
+        self.last_chapter_title = ''
 
-    def set_proxy(self, proxy):
-        self.crawler.get_session().set_proxy(proxy)
-        self.image_downloader.get_session().set_proxy(proxy)
-
-    def set_worker(self, worker):
-        self.image_downloader.set_worker(worker=worker)
-
-    def set_verify(self, verify):
-        self.image_downloader.set_verify(verify)
-
-    def set_driver_path(self, driver_path):
-        self.crawler.DRIVER_PATH = driver_path
+    def start_crawler(self):
+        if self.crawler_time is None:
+            self.refresh()
 
     def refresh(self):
         self.comicbook_item = self.crawler.get_comicbook_item()
@@ -65,21 +64,6 @@ class ComicBook():
             self.last_chapter_number = 0
             self.last_chapter_title = ""
 
-    def start_crawler(self):
-        if self.crawler_time is None:
-            self.refresh()
-
-    @classmethod
-    def create_comicbook(cls, site, comicid=None):
-        if site not in cls.CRAWLER_CLS_MAP:
-            raise SiteNotSupport(f"SiteNotSupport site={site}")
-        crawler_cls = cls.CRAWLER_CLS_MAP[site]
-        if comicid is None:
-            comicid = crawler_cls.DEFAULT_COMICID
-        crawler = crawler_cls(comicid)
-        comicbook = cls(comicbook_crawler=crawler)
-        return comicbook
-
     def search(self, name=None, page=1, limit=None):
         return self.crawler.search(name, page=page, size=limit)
 
@@ -95,7 +79,7 @@ class ComicBook():
         return self.crawler.get_tag_result(tag=tag, page=page)
 
     def to_dict(self):
-        if self.comicbook_item is None:
+        if self.crawler_time is None:
             self.start_crawler()
         return self.comicbook_item.to_dict()
 
@@ -103,7 +87,7 @@ class ComicBook():
         return "<ComicBook>: {}".format(self.to_dict())
 
     def Chapter(self, chapter_number):
-        if self.comicbook_item is None:
+        if self.crawler_time is None:
             self.start_crawler()
 
         if chapter_number < 0:
@@ -130,7 +114,7 @@ class Chapter():
     def __init__(self, comicbook_ref, chapter_item):
         self.comicbook_ref = comicbook_ref
         self.chapter_item = chapter_item
-
+        self._saved = False
         for field in self.chapter_item.FIELDS:
             setattr(self, field, getattr(self.chapter_item, field))
 
@@ -152,24 +136,63 @@ class Chapter():
         return chapter_dir
 
     def get_chapter_pdf_path(self, output_dir):
-        first_dir = safe_filename(self.comicbook.source_name)
+        first_dir = safe_filename(self.comicbook.source_name + ' pdf')
         second_dir = safe_filename(self.comicbook.name)
         filename = safe_filename("{:>03} {}".format(self.chapter_number, self.title)) + ".pdf"
         pdf_path = os.path.join(output_dir, first_dir, second_dir, filename)
         return pdf_path
 
+    def get_single_image_path(self, output_dir):
+        first_dir = safe_filename(self.comicbook.source_name + ' 长图')
+        second_dir = safe_filename(self.comicbook.name)
+        filename = safe_filename("{:>03} {}".format(self.chapter_number, self.title)) + ".jpg"
+        img_path = os.path.join(output_dir, first_dir, second_dir, filename)
+        return img_path
+
+    def get_zipfile_path(self, output_dir):
+        first_dir = safe_filename(self.comicbook.source_name + ' zip')
+        second_dir = safe_filename(self.comicbook.name)
+        filename = safe_filename("{:>03} {}".format(self.chapter_number, self.title)) + ".zip"
+        zipfile_path = os.path.join(output_dir, first_dir, second_dir, filename)
+        return zipfile_path
+
     def save(self, output_dir):
         chapter_dir = self.get_chapter_image_dir(output_dir)
+        if self._saved is True:
+            return chapter_dir
         headers = {'Referer': self.chapter_item.source_url}
         self.comicbook.image_downloader.download_images(
-            image_urls=self.image_urls, output_dir=chapter_dir, headers=headers)
+            image_urls=self.image_urls,
+            output_dir=chapter_dir,
+            headers=headers,
+            image_pipelines=self.chapter_item.image_pipelines)
+        self._saved = True
         return chapter_dir
 
     def save_as_pdf(self, output_dir):
-        from .utils import image_dir_to_pdf
+        from .utils._img2pdf import image_dir_to_pdf
         chapter_dir = self.save(output_dir)
         pdf_path = self.get_chapter_pdf_path(output_dir)
+        ensure_file_dir_exists(pdf_path)
         image_dir_to_pdf(img_dir=chapter_dir,
                          target_path=pdf_path,
                          sort_by=lambda x: int(x.split('.')[0]))
         return pdf_path
+
+    def save_as_single_image(self, output_dir, quality=95):
+        from .utils import image_dir_to_single_image
+        chapter_dir = self.save(output_dir)
+        img_path = self.get_single_image_path(output_dir)
+        ensure_file_dir_exists(img_path)
+        img_path = image_dir_to_single_image(img_dir=chapter_dir,
+                                             target_path=img_path,
+                                             sort_by=lambda x: int(x.split('.')[0]),
+                                             quality=quality)
+        return img_path
+
+    def save_as_zip(self, output_dir):
+        from .utils import image_dir_to_zipfile
+        chapter_dir = self.save(output_dir)
+        zipfile_path = self.get_zipfile_path(output_dir)
+        ensure_file_dir_exists(zipfile_path)
+        return image_dir_to_zipfile(chapter_dir, zipfile_path)

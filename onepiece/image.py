@@ -1,16 +1,20 @@
 import re
 import os
 import time
-import warnings
+import logging
 import PIL.Image
+from PIL import UnidentifiedImageError
 from concurrent.futures import ThreadPoolExecutor
 
 from .exceptions import ImageDownloadError
-from .session import Session
+from .session import SessionMgr
+from .utils import ensure_file_dir_exists
 
 
 HERE = os.path.abspath(os.path.dirname(__file__))
 PROJECT_HOME = os.path.abspath(os.path.join(HERE, os.path.pardir))
+
+logger = logging.getLogger(__name__)
 
 
 def retry(times=3, delay=0):
@@ -35,38 +39,41 @@ def walk(rootdir):
             yield os.path.join(parent, filename)
 
 
-class ImageDownloader():
+class WorkerPoolMgr(object):
+    WORKER_POOL = None
+    POOL_SIZE = 4
+
+    @classmethod
+    def get_pool(cls):
+        if cls.WORKER_POOL is None:
+            cls.WORKER_POOL = ThreadPoolExecutor(max_workers=cls.POOL_SIZE)
+        return cls.WORKER_POOL
+
+    @classmethod
+    def set_worker(cls, worker=4):
+        cls.POOL_SIZE = worker
+        if cls.WORKER_POOL:
+            cls.WORKER_POOL._max_workers = worker
+
+
+class ImageDownloader(object):
     URL_PATTERN = re.compile(r'^https?://.*')
 
-    def __init__(self):
-        self._session = None
+    def __init__(self, site):
+        self.site = site
 
         self.image_download_pool = None
         self.pool_size = 4
-        self.verify = True
         self.timeout = 30
-
-    def set_verify(self, verify=True):
-        self.verify = verify
-
-    def set_worker(self, worker=4):
-        self.worker = worker
 
     def set_timeout(self, timeout=30):
         self.timeout = timeout
 
     def get_session(self):
-        if self._session is None:
-            self._session = Session.create_session()
-        return self._session
-
-    def get_pool(self):
-        if self.image_download_pool is None:
-            self.image_download_pool = ThreadPoolExecutor(max_workers=self.pool_size)
-        return self.image_download_pool
+        return SessionMgr.get_session(site=self.site)
 
     @retry(times=3, delay=1)
-    def download_image(self, image_url, target_path, **kwargs):
+    def download_image(self, image_url, target_path, image_pipeline=None, **kwargs):
         if os.path.exists(target_path):
             try:
                 self.verify_image(target_path)
@@ -75,41 +82,54 @@ class ImageDownloader():
                 pass
         try:
             session = self.get_session()
-            response = session.get(image_url, verify=self.verify, timeout=self.timeout, **kwargs)
+            response = session.get(image_url, timeout=self.timeout, **kwargs)
             if response.status_code != 200:
                 msg = 'img download error: url=%s status_code=%s' % (image_url, response.status_code)
                 raise ImageDownloadError(msg)
         except Exception as e:
             msg = "img download error: url=%s error: %s" % (image_url, e)
             raise ImageDownloadError(msg) from e
-
-        image_dir = os.path.dirname(target_path)
-        os.makedirs(image_dir, exist_ok=True)
+        ensure_file_dir_exists(target_path)
         with open(target_path, 'wb') as f:
             f.write(response.content)
-
         try:
             self.verify_image(target_path)
-        except Exception as e:
+        except UnidentifiedImageError as e:
             os.unlink(target_path)
             raise ImageDownloadError(f'Corrupt image from {image_url}') from e
+
+        if image_pipeline:
+            image_pipeline(target_path)
         return target_path
 
     def verify_image(self, image_path):
+        suffix = image_path.split('.')[-1]
+        webp_head = bytes.fromhex("524946462A73010057454250")
+        if suffix.lower() == 'webp':
+            head = open(image_path, 'rb').read(12)
+            if head[:4] == webp_head[:4] and head[-4:] == webp_head[-4:]:
+                return True
         with PIL.Image.open(image_path) as img:
             img.verify()
 
-    def download_images(self, image_urls, output_dir, **kwargs):
+    def download_images(self, image_urls, output_dir, image_pipelines=None, **kwargs):
         """下载出错只打印出警告信息，不抛出异常
         """
-        pool = self.get_pool()
+        pool = WorkerPoolMgr.get_pool()
         future_list = []
         for idx, image_url in enumerate(image_urls, start=1):
             ext = self.find_suffix(image_url)
             target_path = os.path.join(output_dir.rstrip(), "{}.{}".format(idx, ext))
+            if image_pipelines:
+                image_pipeline = image_pipelines[idx - 1]
+            else:
+                image_pipeline = None
             future = pool.submit(
                 self.download_image,
-                image_url=image_url, target_path=target_path, **kwargs)
+                image_url=image_url,
+                target_path=target_path,
+                image_pipeline=image_pipeline,
+                **kwargs)
             future_list.append(future)
 
         # 等全部图片下载完成
@@ -117,7 +137,7 @@ class ImageDownloader():
             try:
                 future.result()
             except Exception as e:
-                warnings.warn(str(e))
+                logger.warn('image download error. error=%s', e)
         return output_dir
 
     @staticmethod

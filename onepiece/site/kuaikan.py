@@ -50,21 +50,21 @@ class KuaiKanCrawler(CrawlerBase):
         name = data['topicInfo']['title']
         author = data['topicInfo']['user']['nickname']
         desc = data['topicInfo']['description']
-        tag = ",".join(data['topicInfo']['tags'])
         cover_image_url = data['topicInfo']['cover_image_url']
         book = self.new_comicbook_item(name=name,
                                        desc=desc,
-                                       tag=tag,
                                        cover_image_url=cover_image_url,
                                        author=author,
                                        source_url=self.source_url)
-        comics = sorted(data['comics'], key=lambda x: x['id'])
-        for idx, c in enumerate(comics, start=1):
+        for idx, c in enumerate(reversed(data['comics']), start=1):
             chapter_number = idx
             title = c['title']
             cid = c['id']
             url = self.get_chapter_soure_url(cid)
             book.add_chapter(chapter_number=chapter_number, source_url=url, title=title)
+        for tag_name in data['topicInfo']['tags']:
+            tag_id = self.get_tag_id_by_name(tag_name)
+            book.add_tag(name=tag_name, tag=tag_id)
         return book
 
     def get_chapter_soure_url(self, cid):

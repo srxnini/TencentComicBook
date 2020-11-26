@@ -1,12 +1,17 @@
-import os
 import logging
+import os
 from flask import (
     Flask,
     jsonify,
     current_app
 )
 from flask_sqlalchemy import SQLAlchemy
+from onepiece.utils import ensure_file_dir_exists
+from onepiece.session import SessionMgr
+from onepiece.comicbook import ComicBook
 
+from .const import ConfigKey
+from .common import get_cookies_path
 
 db = SQLAlchemy()
 
@@ -14,27 +19,46 @@ db = SQLAlchemy()
 def create_app(cfg='api.config.Config'):
     app = Flask(__name__)
     app.config.from_object(cfg)
-    log_level = app.config.get('LOG_LEVEL')
+    log_level = app.config.get(ConfigKey.LOG_LEVEL)
     init_logger(level=log_level)
     app.url_map.strict_slashes = False
 
-    if app.config.get('SQLITE_FILE'):
-        db_dir = os.path.dirname(app.config.get('SQLITE_FILE'))
-        os.makedirs(db_dir, exist_ok=True)
+    if app.config.get(ConfigKey.SQLITE_FILE):
+        ensure_file_dir_exists(app.config.get(ConfigKey.SQLITE_FILE))
 
     db.init_app(app)
-
     from .views import (
         app as api_app,
         aggregate_app,
-        task_app
     )
+    from .manage_view import manage_app
 
     app.register_blueprint(api_app)
     app.register_blueprint(aggregate_app)
-    app.register_blueprint(task_app)
+    app.register_blueprint(manage_app)
     app.add_url_rule('/', 'index', index)
+    init_session(app)
+    init_db(app)
     return app
+
+
+def init_session(app):
+    with app.app_context():
+        proxy_config = app.config.get(ConfigKey.CRAWLER_PROXY, {})
+        for site in ComicBook.CRAWLER_CLS_MAP:
+            proxy = proxy_config.get(site)
+            if proxy:
+                SessionMgr.set_proxy(site=site, proxy=proxy)
+            cookies_path = get_cookies_path(site=site)
+            if os.path.exists(cookies_path):
+                SessionMgr.load_cookies(site=site, path=cookies_path)
+
+
+def init_db(app):
+    if app.config.get(ConfigKey.SQLITE_FILE):
+        ensure_file_dir_exists(app.config.get(ConfigKey.SQLITE_FILE))
+    with app.app_context():
+        db.create_all()
 
 
 def create_dev_app():
@@ -56,8 +80,7 @@ def init_logger(level=None):
 
 
 def index():
-    from onepiece.comicbook import ComicBook
-    prefix = current_app.config.get('URL_PREFIX', '')
+    prefix = current_app.config.get(ConfigKey.URL_PREFIX, '')
     examples = []
     for site, crawler in ComicBook.CRAWLER_CLS_MAP.items():
         item = dict(
@@ -114,20 +137,30 @@ def index():
         api=prefix + '/aggregate/search?name=海贼&site=bilibili,u17'
     ))
 
-    task_examples = []
-    task_examples.append(dict(
+    manage_examples = []
+    manage_examples.append(dict(
         desc='添加任务',
-        api=prefix + '/task/add?site=qq&comicid=505430&chapter=-1&gen_pdf=1&send_mail=0',
+        api=prefix + '/manage/task/add?site=qq&comicid=505430&chapter=-1&gen_pdf=1&send_mail=0',
     ))
-    task_examples.append(dict(
+    manage_examples.append(dict(
         desc='查看任务',
-        api=prefix + '/task/list?page=1',
+        api=prefix + '/manage/task/list?page=1',
+    ))
+    # GET获取/POST更新站点cookies
+    manage_examples.append(dict(
+        desc='GET获取/POST更新站点cookies',
+        api=prefix + f'/manage/cookies/qq',
+    ))
+    # 查看/设置站点代理
+    manage_examples.append(dict(
+        desc='查看/设置站点代理',
+        api=prefix + f'/manage/proxy/qq',
     ))
 
     return jsonify(
         {
             "api_examples": examples,
             "aggregate_examples": aggregate_examples,
-            "task_examples": task_examples
+            "manage_examples": manage_examples
         }
     )

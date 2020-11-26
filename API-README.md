@@ -1,28 +1,27 @@
 ## 接口部署
 
 ```sh
-# 1. 安装依赖
-pip install -r requirements-api.txt
+# 下载源码 clone项目 或从这里下载最新的代码并解压 https://github.com/lossme/TencentComicBook/releases
+git clone git@github.com:lossme/TencentComicBook.git
+# 切换工作目录
+cd TencentComicBook
 
-# 2. 复制`api/config.py.example`并命名为`api/config.py` 并根据实际情况修改`api/config.py`的参数
+# 安装依赖
+python3 -m pip install -r requirements-api.txt
+
+# 复制`api/config.py.example`并命名为`api/config.py` 并根据实际情况修改`api/config.py`的参数
 cp api/config.py.example api/config.py
 
-# 2.1 删除旧数据库
-rm download/onepiece.db
+# 启动接口
+gunicorn 'api:create_app()' -b "127.0.0.1:8000" --workers=2 --timeout=10
 
-# 2.2 创建新数据库
-python manage.py createdb
-
-# 3. 启动接口
-gunicorn 'api:create_app()' -b "127.0.0.1:8000" --workers=2 --timeout=30
-
-# 4. 查看可选的配置选项 gunicorn --help
+# 查看可选的配置选项 gunicorn --help
 # 文档 http://docs.gunicorn.org/en/latest/settings.html
 ```
 
 ## 接口文档
 
-- [1.1 获取概要信息](#11)
+- [1.1 获取漫画概要信息](#11)
 - [1.2 获取章节详情](#12)
 - [1.3 搜索接口](#13)
 - [1.4 获取最近更新](#14)
@@ -31,9 +30,13 @@ gunicorn 'api:create_app()' -b "127.0.0.1:8000" --workers=2 --timeout=30
 - [1.7 聚合搜索](#17)
 - [2.1 添加到异步任务](#21)
 - [2.2 查看任务列表](#22)
+- [2.3 查看站点cookies](#23)
+- [2.4 更新站点cookies](#24)
+- [2.5 查看站点代理配置](#25)
+- [2.6 设置站点代理](#26)
 
 
-### 1.1 获取概要信息
+### 1.1 获取漫画概要信息
 
 `GET /api/<site>/comic/<comicid>`
 
@@ -57,6 +60,8 @@ curl "http://127.0.0.1:8000/api/bilibili/comic/24742"
             "title": "戴草帽的路飞"
         }
     ],
+    "volumes": [],
+    "ext_chapters": [],
     "cover_image_url": "http://i0.hdslb.com/bfs/manga-static/8cfad691e8717f8c189f2b5e93a39d272708f91a.jpg",
     "crawl_time": "2020-08-16 15:06:29",
     "desc": "【此漫画的翻译由版权方提供】拥有财富、名声、权力、这世界上的一切的男人 “海盗王”高路德·罗杰，在临死之前说了一句话，让全世界的人都涌向了大海。“想要我的财宝吗？想要的话，就去拿吧，我把世界上的一切都放在了那里！”，这个世界迎来了“大海盗时代”。",
@@ -65,11 +70,26 @@ curl "http://127.0.0.1:8000/api/bilibili/comic/24742"
     "site": "bilibili",
     "source_url": "https://manga.bilibili.com/m/detail/mc24742",
     "tag": "奇幻,热血,冒险",
-    "tags": [],
-    "volumes": [],
-    "ext_chapters": []
+    "tags": [
+        {
+            "name":"奇幻",
+            "tag":"style_id_998"
+        },
+        {
+            "name":"热血",
+            "tag":"style_id_999"
+        },
+        {
+            "name":"冒险",
+            "tag":"style_id_1013"
+        }
+    ]
 }
 ```
+
+- `volumes`: 单行本 数据结构同 `chapters`
+- `ext_chapters`: 番外篇 数据结构同`chapters`
+- `tags`: 可用于标签搜索，如 `http://127.0.0.1:8000/api/bilibili/list?tag=style_id_998&page=1`
 
 ------
 
@@ -283,6 +303,7 @@ curl "http://127.0.0.1:8000/api/qq/tags"
 请求示例
 
 ```sh
+# 多个标签搜索不一定支持
 curl "http://127.0.0.1:8000/api/qq/list?tag=theme_105,finish_2&page=1"
 ```
 
@@ -347,23 +368,40 @@ curl "http://127.0.0.1:8000/aggregate/search?name=海贼&site=bilibili,u17"
 ```
 
 
+### 2.0 API管理相关 简单的认证
+
+`/manage/`路由下的接口，需要在请求的headers添加`API-Secret`字段，值为`config.py`中的`MANAGE_SECRET`，若配置留空则不用验证
+
+如
+```sh
+curl -H "API-Secret: 123" "http://127.0.0.1:8000/manage/proxy/qq"
+```
+
 ### 2.1 添加到异步任务
 
-`GET /task/add?name={name}&site={site}`
+`GET /manage/task/add`
 
 - site: 站点
 - comicid: 漫画id
-- chapter: 下载漫画的哪个章节，不传默认下载最新一集
-- is_all: 是否下载所有章节, 0 否，1 是，默认 否
-- gen_pdf: 是否生成pdf, 0 否，1 是，默认 否
-- send_mail: 是否发送到邮箱, 0 否，1 是，默认 否
-- receivers: 收件人列表，如: `xxx@qq.com,yyy@qq.com`, 不传默认发送到配置文件里的收件人，
-- secret: config.py 中的 TASK_SECRET
+- params: json字符串
+```json
+{
+    "chapters": "1,2,3",  # 下载的章节数 默认下载最新一集
+    "is_download_all": true,   # 是否下载全部 默认否
+    "is_gen_pdf": true,   # 是否生成pdf文件 默认否
+    "is_gen_zip": true,   # 是否生成zip文件 默认否
+    "is_single_image": true,  # 是否生成单图文件 默认否
+    "quality": 95,  # 生成的单图图片质量 默认95
+    "is_send_mail": true,   # 是否发送邮件 默认否
+    "receivers": "123@qq.com,456@qq.com"   # 邮件接收者，不传默认发送到配置文件里的收件人
+}
+```
+
 
 请求示例
 
 ```sh
-curl "http://127.0.0.1:8000/task/add?site=qq&comicid=505430&chapter=3&gen_pdf=1&send_mail=0"
+curl 'http://127.0.0.1:8000/manage/task/add?site=qq&comicid=505430&params={"chapters": "1","is_download_all":false}'
 ```
 
 ```json
@@ -392,14 +430,14 @@ curl "http://127.0.0.1:8000/task/add?site=qq&comicid=505430&chapter=3&gen_pdf=1&
 
 ### 2.2 查看任务列表
 
-`GET /task/list?name={page}&secret={secret}`
+`GET /manage/task/list?page={page}`
+
+若任务超过10min，任务状态还没变成完成/失败，可能需重新添加异步任务
 
 请求示例
 
-若任务超过10min 任务状态还没变成完成/失败，则需重新添加异步任务
-
 ```sh
-curl "http://127.0.0.1:8000/task/list?page=1"
+curl -H "API-Secret: 123" "http://127.0.0.1:8000/manage/task/list?page=1"
 ```
 
 ```json
@@ -425,4 +463,62 @@ curl "http://127.0.0.1:8000/task/list?page=1"
         }
     ]
 }
+```
+
+### 2.3 查看站点cookies
+`GET /manage/cookies/{site}`
+
+请求示例
+
+```sh
+curl -H "API-Secret: 123" "http://127.0.0.1:8000/manage/cookies/qq"
+```
+
+### 2.4 更新站点cookies
+
+`POST /manage/cookies/{site}`
+
+
+请求示例
+
+```sh
+curl -XPOST "http://127.0.0.1:8000/manage/cookies/qq" \
+    -H "API-Secret: 123" \
+    -H "Content-Type: application/json" -d \
+'{
+    "cookies": [
+        {
+            "domain": ".ac.qq.com",
+            "name": "xxx",
+            "path": "/",
+            "secure": false,
+            "value": "1604080000"
+        }
+    ],
+    "cover": false
+}'
+```
+
+- `cover`: 可选参数，是否覆盖，默认不覆盖
+
+
+### 2.5 查看站点代理配置
+
+`GET /manage/proxy/{site}`
+
+请求示例
+
+```sh
+curl "http://127.0.0.1:8000/manage/proxy/qq"
+```
+
+
+### 2.6 设置站点代理
+
+`GET /manage/proxy/{site}?proxy={proxy}`
+
+请求示例
+
+```sh
+curl "http://127.0.0.1:8000/manage/proxy/wnacg?proxy=socks5://127.0.0.1:1082"
 ```

@@ -5,7 +5,7 @@ import execjs
 from bs4 import BeautifulSoup
 
 from .exceptions import URLException
-from .session import Session
+from .session import SessionMgr
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +15,11 @@ class ComicBookItem():
               "source_url", "source_name", "crawl_time", "chapters", "ext_chapters", "volumes",
               "status", 'tags', "site", "last_update_time"]
 
-    def __init__(self, name=None, desc=None, tag=None, cover_image_url=None,
+    def __init__(self, name=None, desc=None, cover_image_url=None,
                  author=None, source_url=None, source_name=None,
-                 crawl_time=None, status=None, site=None, last_update_time=None):
+                 crawl_time=None, status=None, site=None, last_update_time=None, **kwargs):
         self.name = name or ""
         self.desc = desc or ""
-        self.tag = tag or ""
         self.cover_image_url = cover_image_url or ""
         self.author = author or ""
         self.source_url = source_url or ""
@@ -36,11 +35,17 @@ class ComicBookItem():
         self.volume_citems = {}
         self.tags = []
 
+    @property
+    def tag(self):
+        return ",".join([tag['name'] for tag in self.tags])
+
     def to_dict(self):
         return {field: getattr(self, field) for field in self.FIELDS}
 
-    def add_tag(self, name, tag):
-        self.tags.append(dict(name=name, tag=tag))
+    def add_tag(self, name, tag=None):
+        tag = tag or ''
+        if name:
+            self.tags.append(dict(name=name, tag=tag))
 
     def add_chapter(self, chapter_number, title, source_url, **kwargs):
         self.citems[chapter_number] = Citem(
@@ -93,13 +98,16 @@ class Citem():
 class ChapterItem():
     FIELDS = ["chapter_number", "title", "image_urls", "source_url", "site", "source_name"]
 
-    def __init__(self, chapter_number, title, image_urls, source_url=None, site=None, source_name=None):
+    def __init__(self, chapter_number, title, image_urls, 
+                 source_url=None, site=None, source_name=None,
+                 image_pipelines=None):
         self.chapter_number = chapter_number
         self.title = title or ""
         self.image_urls = image_urls or []
         self.source_url = source_url or ""
         self.site = site or ""
         self.source_name = source_name or ""
+        self.image_pipelines = image_pipelines
 
     def to_dict(self):
         return {field: getattr(self, field) for field in self.FIELDS}
@@ -143,6 +151,9 @@ class TagsItem():
     def to_dict(self):
         return self.tags
 
+    def __iter__(self):
+        return iter(self.tags)
+
 
 class CrawlerBase():
 
@@ -163,33 +174,36 @@ class CrawlerBase():
     R18 = False
 
     def __init__(self):
-        self._session = None
+        self.timeout = 30
+        self._tag_info = None
         if self.REQUIRE_JAVASCRIPT:
             try:
                 execjs.get()
             except Exception:
                 raise RuntimeError('pleaese install nodejs first. https://nodejs.org/zh-cn/')
 
-    def set_session(self, session):
-        self._session = session
+    def set_timeout(self, timeout=30):
+        self.timeout = timeout
 
     def get_session(self):
-        if self._session is None:
-            self._session = Session.create_session()
-        return self._session
+        return SessionMgr.get_session(site=self.SITE)
 
     def export_session(self, path):
-        session = self.get_session()
-        session.export(path)
+        SessionMgr.export_session(site=self.SITE, path=path)
 
     def load_session(self, path):
-        session = Session.load(path)
-        self.set_session(session)
+        SessionMgr.load_session(site=self.SITE, path=path)
+
+    def load_cookies(self, path):
+        SessionMgr.load_cookies(site=self.SITE, path=path)
+
+    def export_cookies(self, path):
+        SessionMgr.export_cookies(site=self.SITE, path=path)
 
     def send_request(self, method, url, **kwargs):
         session = self.get_session()
         kwargs.setdefault('headers', {'Referer': self.SITE_INDEX})
-        kwargs.setdefault('timeout', session.TIMEOUT)
+        kwargs.setdefault('timeout', self.timeout)
         try:
             return session.request(method=method, url=url, **kwargs)
         except Exception as e:
@@ -245,6 +259,9 @@ class CrawlerBase():
         return self.new_search_result_item()
 
     def get_tags(self):
+        """
+        :return TagsItem:
+        """
         return self.new_tags_item()
 
     def get_tag_result(self, tag, page=1):
@@ -268,17 +285,20 @@ class CrawlerBase():
             logger.info("Waiting to login")
             time.sleep(3)
             try:
-                cookies = driver.get_cookies()
+                cookies = []
+                for cookie in driver.get_cookies():
+                    cookies.append(
+                        dict(name=cookie["name"],
+                             value=cookie["value"],
+                             path=cookie["path"],
+                             domain=cookie["domain"],
+                             secure=cookie["secure"])
+                    )
             except Exception:
                 logger.exception('unknow error. driver quit.')
                 driver.quit()
                 return
-            for cookie in cookies:
-                self.get_session().cookies.set(name=cookie["name"],
-                                               value=cookie["value"],
-                                               path=cookie["path"],
-                                               domain=cookie["domain"],
-                                               secure=cookie["secure"])
+            SessionMgr.update_cookies(site=self.SITE, cookies=cookies)
             if check_login_status_func():
                 logger.info("login success")
                 driver.quit()
@@ -294,3 +314,15 @@ class CrawlerBase():
         from selenium import webdriver
         driver_cls = getattr(webdriver, driver_type)
         return driver_cls(self.DRIVER_PATH)
+
+    def get_tags_from_cache(self):
+        if self._tag_info is None:
+            self._tag_info = self.get_tags()
+        return self._tag_info
+
+    def get_tag_id_by_name(self, name):
+        for group in self.get_tags_from_cache():
+            for tag in group['tags']:
+                if tag['name'] == name:
+                    return tag['tag']
+        return ''

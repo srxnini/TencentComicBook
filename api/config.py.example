@@ -21,16 +21,26 @@ class Config(object):
         'manhuagui': DEFAULT_PROXY,
         'nhentai': DEFAULT_PROXY,
         'wnacg': DEFAULT_PROXY,
+        'acg456': DEFAULT_PROXY,
+        'mh1234': DEFAULT_PROXY,
     }
 
-    DATA_DIR = os.path.join(PROJECT_HOME, 'download')
+    # 站点数据存放目录
+    DATA_DIR = os.path.join(PROJECT_HOME, 'data')
+    # 图片保存目录
+    DOWNLOAD_DIR = os.path.join(PROJECT_HOME, 'download')
+    # cookies存放目录
+    COOKIES_DIR = os.path.join(DATA_DIR, 'cookies')
+
+    # API管理 密钥
+    MANAGE_SECRET = ""
 
     # 数据库连接
     SQLALCHEMY_ECHO = False
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLITE_FILE = os.path.join(DATA_DIR, 'onepiece.db')
-
-    SQLALCHEMY_DATABASE_URI = f"sqlite:///{SQLITE_FILE}"
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    # SQLITE_FILE = os.path.join(DATA_DIR, 'onepiece.db')
+    # SQLALCHEMY_DATABASE_URI = f"sqlite:///{SQLITE_FILE}"
     # SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://user:password@ip:port/test?charset=utf8mb4'
 
     MAIL_CONFIG = dict(
